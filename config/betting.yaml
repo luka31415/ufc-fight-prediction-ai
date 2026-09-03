@@ -1,0 +1,6 @@
+min_confidence: 0.60
+min_ev: 0.10
+kelly_fraction: 0.25
+max_fight_bankroll: 0.03
+max_event_bankroll: 0.125
+event_stakes_use_start_bankroll: true
