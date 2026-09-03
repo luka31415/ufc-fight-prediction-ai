@@ -1,0 +1,27 @@
+experiment_id,category,experiment,development_result,later_result,betting_result,status,notes
+EXP001,model,16-feature logistic baseline,"2024 ACC .6004 LL .6620 Brier .2348 AUC .6440","2025+ ACC .5957 LL .6632 Brier .2355 AUC .6363",,SUPERSEDED,Initial serious baseline
+EXP002,feature,Elo,"Early model modest/no gain","2025+ ACC .5923 LL .6613 AUC .639",,KEEP_AS_FEATURE,Became useful in mature feature set
+EXP003,feature,Age height reach,"2024 LL .6553 AUC .6537","2025+ LL .6436 AUC .6825",,KEEP,Major improvement
+EXP004,feature,Rate and defense,"2024 LL .6508 AUC .6606","2025+ LL .6381 AUC .6888",,KEEP,Strong improvement
+EXP005,feature,Recent-3 form,"ΔLL -.0003 ΔBrier -.0003 ΔAUC +.0034",,,KEEP,Small coherent gain
+EXP006,feature,Strength of schedule,"2024 ΔLL -.0024 ΔBrier -.0012 ΔAUC +.0047",,,KEEP,Completed 42-feature set
+EXP007,model,CatBoost vs logistic,"CatBoost stronger AUC/accuracy across WF",,,KEEP,Complementary to logistic
+EXP008,model,55/45 ensemble,"2020-24 ACC .6203 LL .6512 Brier .2297 AUC .6640",,,PRODUCTION,55% CatBoost 45% logistic
+EXP009,feature,Momentum/durability,"ΔACC -.0077 ΔLL -.0008 ΔAUC +.0001",,,REJECT,Too little probability gain for complexity
+EXP010,feature,Division stance age context,"ΔACC -.0057 ΔLL -.0003 ΔAUC +.0019",,,REJECT,Later tests did not confirm
+EXP011,data_feature,Estimated fight-night weight,"2020-24 LL worsened .65183→.65240/.65234/.65345",,"No production benefit",REJECT,Interesting descriptive data but weak predictive value
+EXP012,data_feature,Prior rehydration,"2020-24 all variants worsen LL","2025+ tiny aggregate effects; active subgroup not robust",,REJECT,Do not promote
+EXP013,betting,Bet every model pick,,,"2025+ 624 bets ROI 7.23%; dog ROI 21.67%",SUPERSEDED,Motivated selective betting
+EXP014,training,Money-first/profit-weighted training,"No stable predictive promotion","No stable holdout promotion","No stable betting promotion",REJECT,Avoid odds-sample overfit
+EXP015,model,Hyperparameter alternatives,"No robust improvement","No robust improvement",,REJECT,Keep simple locked config
+EXP016,model,Residual neural MLP,"No convincing WF improvement","No convincing later improvement",,REJECT,Early stopping at few epochs
+EXP017,model,Leakage-safe stacking,"No convincing improvement",,,REJECT,Correct OOF design but no promotion
+EXP018,model,XGBoost challenger/veto,"No robust challenger advantage","No robust later advantage","No robust veto advantage",REJECT,Do not add complexity
+EXP019,feature,TD stuffed / last method,"Candidate C investigated",,"Sizing optimization investigated",SHADOW,Not production
+EXP020,media,Limited media-adjusted Elo,"Promising initial signal","Later/clean tests inconsistent",,REJECT,Required clean direct-scrape retest
+EXP021,media,Clean media-adjusted Elo,"2020-24 ΔLL -.00013 ΔAUC +.00059","2025-26 ΔAUC -.00034; changed picks net -10",,REJECT,Insufficient robustness
+EXP022,media,Limited robbery sample weights,"2020-24 worsened",,"",REJECT,Later full-V3 test performed
+EXP023,media,Full-V3 continuous sample weights,"2020-24 ΔLL -.00042 ΔAUC +.00061","2025-26 ΔLL +.00051 ΔAUC -.00180; changed picks -9",,REJECT,306 truly downweighted fights
+EXP024,media,Media C recent-history features,"2020-24 ΔLL -.00059 ΔBrier -.00032 ΔAUC +.00202","2025-26 ΔLL -.00131 ΔBrier -.00054 ΔAUC +.00189","2025-26 bankroll $16,379.65→$12,724.87; DD 10.43%→23.38%",REJECT_PRODUCTION,Predictive metrics improved but betting deteriorated
+EXP025,betting,Locked filtered Kelly system,,,"confidence>=.60 EV>=.10 quarter Kelly 3% fight cap 12.5% event cap",PRODUCTION,Event bets sized from event-start bankroll
+EXP026,data_feature,Pre-UFC professional record,"Pilot successful",,"Pending",IN_PROGRESS,Sherdog strict identity resolver and resumable scrape
