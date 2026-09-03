@@ -1,0 +1,13 @@
+seed: 42
+blend:
+  catboost: 0.55
+  logistic: 0.45
+logistic:
+  max_iter: 3000
+  imputer: median
+  scaler: standard
+catboost:
+  iterations: 420
+  depth: 5
+  learning_rate: 0.03
+  loss_function: Logloss
