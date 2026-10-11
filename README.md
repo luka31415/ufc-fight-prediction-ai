@@ -188,6 +188,24 @@ See the [latest results report](reports/results/2026-10-11/UFC_Ergebnisbericht.m
 
 This update evaluates the available **42-feature Production v1/beta artifacts**, not the 46-feature Sherdog Production v2 described above. It separates saved pre-event picks, retrospective reconstructions and archived yearly walk-forward predictions. The P&L totals are incomplete simulations because 58 potentially eligible fights lack odds in 2026, including one after the cutoff. Individual probability ledgers and raw supporting data are not published in this update.
 
+## Production v2 follow-up — 11 October 2026
+
+A separate follow-up evaluates the **46-feature Production v2** on the 2026 fight set and adds a limited archived-moneyline backtest.
+
+Key predictive results:
+
+- 2026: **275 / 425 correct (64.71%)**
+- Brier score: **0.2261**
+- Log loss: **0.6439**
+- After the 29 August training cutoff: **44 / 65 correct (67.69%)**
+- At >=65% confidence in 2026: **75.18% accuracy**
+
+The historical BestFightOdds moneyline sample is still incomplete. Only **56 / 429 fights** had both sides priced in the current mapped set, producing five qualifying bets. In that limited sample, Production v2 went **4-1**, with **+1,066.89** simulated P&L using best available displayed prices and **+963.43** using median available prices across books. These prices are archived displayed odds, not guaranteed closing or executable lines, and the sample is too small to establish durable profitability.
+
+See the full follow-up report:
+
+[`reports/results/2026-10-11/production_v2_2026_update.md`](reports/results/2026-10-11/production_v2_2026_update.md)
+
 ## Detailed report
 
 For the complete technical history—including data engineering, leakage prevention, important experiments, betting results, bugs, rejected ideas, and the current roadmap—see:
