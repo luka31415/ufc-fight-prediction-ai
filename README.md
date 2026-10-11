@@ -182,6 +182,12 @@ I split the original giant notebook into thematic workflows:
 
 The original notebook is still preserved under `archive/` for traceability.
 
+## Results update — 11 October 2026
+
+See the [latest results report](reports/results/2026-10-11/UFC_Ergebnisbericht.md) and [aggregate period summary](reports/results/2026-10-11/period_summary.csv) for the last three cards, 2026, and the period after the saved model's training cutoff (29 August 2026).
+
+This update evaluates the available **42-feature Production v1/beta artifacts**, not the 46-feature Sherdog Production v2 described above. It separates saved pre-event picks, retrospective reconstructions and archived yearly walk-forward predictions. The P&L totals are incomplete simulations because 58 potentially eligible fights lack odds in 2026, including one after the cutoff. Individual probability ledgers and raw supporting data are not published in this update.
+
 ## Detailed report
 
 For the complete technical history—including data engineering, leakage prevention, important experiments, betting results, bugs, rejected ideas, and the current roadmap—see:
