@@ -124,6 +124,7 @@ Over the last several weeks I tested a large number of ideas, including:
 - MMA Decisions robbery/media information
 - media-adjusted Elo and media-history state
 - Sherdog pre-UFC professional records
+- home-field / same-country event advantage
 
 I kept experiments that produced stable out-of-sample improvements and rejected ideas that looked attractive but failed later validation or betting tests. I document both the successful and failed work because the failures are useful evidence, not wasted work.
 
@@ -141,6 +142,7 @@ I deliberately rejected several ideas after testing them:
 - robbery-aware sample weighting
 - media-adjusted Elo
 - media-history features
+- home-field advantage
 
 A particularly useful example was the media-history experiment. It slightly improved global probability metrics, but the locked betting strategy became substantially worse, so I rejected it for production.
 
@@ -220,6 +222,17 @@ The live runner currently has one policy inconsistency: it can display `BET — 
 See the full follow-up report:
 
 [`reports/results/2026-10-11/production_v2_2026_update.md`](reports/results/2026-10-11/production_v2_2026_update.md)
+
+
+## Home-field advantage experiment — rejected
+
+I tested whether fighting in the same country as the event adds predictive value beyond Production v2. The clean final test froze the existing V2 probability and learned only a single chronological home logit offset, so neutral fights were mathematically unchanged.
+
+Across 238 walk-forward fights, the home-offset challenger slightly worsened accuracy, Brier score and log loss. On 108 unique-home fights it also worsened all three metrics. The median learned home coefficient was very small (+0.0115) and was positive in only 63% of chronological folds. A later-half slice showed mild probability-metric improvement, but the full out-of-sample evidence was not robust enough for promotion.
+
+Decision: **REJECT**. Production v2 remains unchanged.
+
+See: [`reports/experiments/home_field_advantage_2026.md`](reports/experiments/home_field_advantage_2026.md)
 
 ## Detailed report
 
