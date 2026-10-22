@@ -188,19 +188,34 @@ See the [latest results report](reports/results/2026-10-11/UFC_Ergebnisbericht.m
 
 This update evaluates the available **42-feature Production v1/beta artifacts**, not the 46-feature Sherdog Production v2 described above. It separates saved pre-event picks, retrospective reconstructions and archived yearly walk-forward predictions. The P&L totals are incomplete simulations because 58 potentially eligible fights lack odds in 2026, including one after the cutoff. Individual probability ledgers and raw supporting data are not published in this update.
 
-## Production v2 follow-up — 11 October 2026
+## Production v2 follow-up — updated 22 October 2026
 
-A separate follow-up evaluates the **46-feature Production v2** on the 2026 fight set and adds a limited archived-moneyline backtest.
+The Production v2 follow-up has now been expanded with automatic BestFightOdds event mapping, a larger historical moneyline sample, a locked V1-vs-V2 post-cutoff comparison, and a fresh upcoming-card inference run.
 
-Key predictive results:
+Key historical results:
 
-- 2026: **275 / 425 correct (64.71%)**
+- 2026 prediction accuracy: **275 / 425 (64.71%)**
 - Brier score: **0.2261**
 - Log loss: **0.6439**
 - After the 29 August training cutoff: **44 / 65 correct (67.69%)**
-- At >=65% confidence in 2026: **75.18% accuracy**
+- BestFightOdds mapping: **28 / 34 events resolved**
+- Both-side moneyline coverage: **286 / 429 fights (66.7%)**
+- 2026 best-available backtest: **11-5, +1,469.15 simulated P&L**
+- 2026 robust-median backtest: **9-5, +938.05 simulated P&L**
+- Post-cutoff best-available sample: **2-1, +66.98**
+- Post-cutoff robust-median sample: **1-1, -142.70**
 
-The historical BestFightOdds moneyline sample is still incomplete. Only **56 / 429 fights** had both sides priced in the current mapped set, producing five qualifying bets. In that limited sample, Production v2 went **4-1**, with **+1,066.89** simulated P&L using best available displayed prices and **+963.43** using median available prices across books. These prices are archived displayed odds, not guaranteed closing or executable lines, and the sample is too small to establish durable profitability.
+A locked V1-vs-V2 comparison on 37 common stored post-cutoff predictions gave V2 slightly better predictive metrics:
+
+- Accuracy: **54.05% -> 56.76%**
+- Brier: **0.2692 -> 0.2652**
+- Log loss: **0.7432 -> 0.7316**
+
+V1 nevertheless produced the stronger betting result in this very small common sample because small probability-calibration differences changed which fights crossed the fixed EV threshold.
+
+A fresh Production v2 run on 22 October produced **65 picks across six upcoming cards** without retraining. The local fight-history snapshot used by that run still ends on **3 October 2026**.
+
+The live runner currently has one policy inconsistency: it can display `BET — REVIEW DATA` on low-data fights even when one fighter has fewer than five prior UFC fights. Those review bets are not considered qualifying bets under the locked historical betting policy and the runner should be fixed before live betting outputs are treated as policy-compliant.
 
 See the full follow-up report:
 
@@ -218,7 +233,7 @@ I also keep a machine-readable experiment registry here:
 
 ## Current research direction
 
-The next engineering step is integrating Production v2 into the live prediction and live betting stack so upcoming fights automatically receive the frozen pre-UFC Sherdog features before inference.
+The current engineering priorities are enforcing the locked >=5-prior-UFC-fights betting filter in the live runner, updating local fight history beyond 3 October 2026, rerunning the upcoming-card snapshot, and extending the stored V1-vs-V2 post-cutoff comparison beyond the current 37 common fights.
 
 ## Disclaimer
 
