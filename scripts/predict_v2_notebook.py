@@ -1,6 +1,9 @@
-"""V2 notebook prediction runner. Uses local saved models; never retrains them.
+"""V2.1 notebook prediction runner with safe V2 fallback.
+
+Uses local saved models; never retrains them. V2.1 adds the validated
+DIFF_UAE_RUSSIA_HOME feature. For UAE fights whose country identity cannot be
+resolved safely, prediction falls back to the frozen 46-feature V2 model.
 Fetches current scheduled UFC cards and optionally current ESPN moneylines.
-Feature formulas come from the original 42-feature live builder.
 """
 from pathlib import Path
 from datetime import date, datetime, timedelta, timezone
@@ -20,6 +23,46 @@ def api_json(path, **params):
     request = Request(f"{API}/{path}?{urlencode(params)}", headers={"User-Agent": "UFCResearchProject/1.0"})
     with urlopen(request, timeout=45) as response:
         return json.load(response)
+
+def _text_country(obj):
+    """Best-effort explicit country label from an ESPN competitor/athlete object."""
+    athlete = obj.get("athlete", {}) if isinstance(obj, dict) else {}
+    for source in [athlete, obj if isinstance(obj, dict) else {}]:
+        for key in ["country", "countryCode", "nationality", "citizenship"]:
+            value = source.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+            if isinstance(value, dict):
+                for sub in ["name", "displayName", "abbreviation", "code"]:
+                    text = value.get(sub)
+                    if isinstance(text, str) and text.strip():
+                        return text.strip()
+    flag = athlete.get("flag", {})
+    if isinstance(flag, dict):
+        for key in ["alt", "countryCode", "name"]:
+            value = flag.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+    return ""
+
+def _event_location_text(event, fight=None):
+    parts = []
+    if isinstance(event, dict):
+        parts += [event.get("name", ""), event.get("shortName", "")]
+    for source in [fight, event]:
+        if not isinstance(source, dict):
+            continue
+        venue = source.get("venue", {})
+        if isinstance(venue, dict):
+            parts += [venue.get("fullName", ""), venue.get("name", "")]
+            address = venue.get("address", {})
+            if isinstance(address, dict):
+                parts += [address.get(k, "") for k in ["city", "state", "country", "countryCode"]]
+    return " | ".join(str(x).strip() for x in parts if str(x).strip())
+
+def _is_uae_text(value):
+    text = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii").casefold()
+    return any(term in text for term in ["united arab emirates", "abu dhabi", "yas island", " uae", "uae "])
 
 def parse_event(event, now):
     """Accept only explicitly scheduled, not started fightcards."""
@@ -46,14 +89,19 @@ def parse_event(event, now):
         names = [c.get("athlete", {}).get("displayName", "").strip() for c in competitors]
         if not all(names) or any(n.upper() in {"TBD", "TBA", "TBC"} for n in names):
             continue
+        location = _event_location_text(event, fight)
         rows.append({
             "DATE": stamp.date().isoformat(),
             "EVENT": event.get("name", event.get("shortName", event["id"])),
             "EVENT_ID": str(event["id"]),
             "FIGHT_ID": str(fight["id"]),
             "EVENT_START_UTC": stamp.isoformat(),
+            "EVENT_LOCATION": location,
+            "IS_UAE_EVENT": _is_uae_text(location),
             "FIGHTER_A": names[0], "FIGHTER_B": names[1],
             "A_ESPN_ID": str(competitors[0]["id"]), "B_ESPN_ID": str(competitors[1]["id"]),
+            "A_COUNTRY_ESPN": _text_country(competitors[0]),
+            "B_COUNTRY_ESPN": _text_country(competitors[1]),
             "SOURCE_URL": f"https://www.espn.com/mma/fightcenter/_/id/{event['id']}",
         })
     return rows
@@ -140,6 +188,9 @@ def add_odds(live, path, fmt, bankroll):
     live["ACTION"] = "NO BET"
     live.loc[live.PICK_ODDS_DECIMAL.isna(), "ACTION"] = "NO ODDS"
     eligible = (live.PICK_PROB >= .60) & (live.MODEL_EV >= .10)
+    if "A_UFC_FIGHTS" in live and "B_UFC_FIGHTS" in live:
+        eligible &= (pd.to_numeric(live.A_UFC_FIGHTS, errors="coerce") >= 5)
+        eligible &= (pd.to_numeric(live.B_UFC_FIGHTS, errors="coerce") >= 5)
     live.loc[eligible & (live.DATA_QUALITY != "NORMAL"), "ACTION"] = "BET — REVIEW DATA"
     live.loc[eligible & (live.DATA_QUALITY == "NORMAL"), "ACTION"] = "BET"
     fraction = (.25 * live.MODEL_EV / (live.PICK_ODDS_DECIMAL - 1)).clip(lower=0, upper=.03)
@@ -525,7 +576,8 @@ def fetch_odds(cards):
 
 def _preufc_features(root, live, fighter_key, metadata):
     raw = pd.read_csv(root / 'data/sherdog_preufc_features_full.csv')
-    required = [c.removeprefix('DIFF_') for c in metadata['preufc_features']]
+    preufc_features = metadata.get('preufc_features') or [c for c in metadata['features'] if c.startswith('DIFF_PREUFC_')]
+    required = [c.removeprefix('DIFF_') for c in preufc_features]
     if any(c not in raw for c in ['FIGHTER'] + required):
         raise ValueError('Sherdog CSV is missing required columns')
     raw['_KEY'] = raw.FIGHTER.map(fighter_key)
@@ -567,92 +619,241 @@ def _preufc_features(root, live, fighter_key, metadata):
             result.loc[i, f'{side}_PREUFC_SOURCE'] = label
         for col in required:
             result.loc[i, 'DIFF_' + col] = sides['A'][col] - sides['B'][col]
-    result['PREUFC_COMPLETE'] = result[metadata['preufc_features']].notna().all(axis=1)
+    result['PREUFC_COMPLETE'] = result[preufc_features].notna().all(axis=1)
     return result
 
 
-def _predict_matrix(root, live, metadata):
-    features = metadata['features']
-    logistic = joblib.load(root / 'models/ufc_logistic_production_v2_preufc.joblib')
-    cat = CatBoostClassifier()
-    cat.load_model(str(root / 'models/ufc_catboost_production_v2_preufc.cbm'))
-    if list(logistic.feature_names_in_) != features or cat.feature_names_ != features:
-        raise ValueError('V2 feature order differs from metadata')
-    if list(logistic.classes_) != [0, 1] or list(cat.classes_) != [0, 1]:
-        raise ValueError('Unexpected model labels')
-    matrix = live[features].replace([np.inf, -np.inf], np.nan)
-    try:
-        p = metadata['ensemble']['catboost_weight'] * cat.predict_proba(matrix)[:, 1]
-        p += metadata['ensemble']['logistic_weight'] * logistic.predict_proba(matrix)[:, 1]
-    except AttributeError as exc:
-        raise RuntimeError('Saved models are incompatible with this sklearn version. Install scikit-learn==1.5.2 and numpy<2, restart the notebook kernel, then rerun.') from exc
+def _country_norm(value):
+    text = unicodedata.normalize("NFKD", str(value) if value is not None else "").encode("ascii", "ignore").decode("ascii").casefold()
+    text = re.sub(r"[^a-z0-9]+", " ", text).strip()
+    aliases = {
+        "russian federation": "russia",
+        "ru": "russia",
+        "rus": "russia",
+        "united arab emirates": "united arab emirates",
+        "uae": "united arab emirates",
+    }
+    return aliases.get(text, text)
+
+def _add_v21_feature(root, live, fighter_key):
+    """Build DIFF_UAE_RUSSIA_HOME. Missing UAE country identity is never guessed."""
     result = live.copy()
-    result['P_A'], result['P_B'] = p, 1-p
-    result['PICK'] = np.where(p >= .5, result.FIGHTER_A, result.FIGHTER_B)
-    result['PICK_PROB'] = np.maximum(p, 1-p)
+    map_path = root / "reports" / "uae_regional_home_full_timeline" / "fighter_country_map_espn_enriched.csv"
+    lookup = {}
+    if map_path.is_file():
+        countries = pd.read_csv(map_path)
+        canonical = lambda x: re.sub(r"[^A-Z0-9]", "", str(x).upper())
+        cols = {canonical(c): c for c in countries.columns}
+        fighter_col = next((cols.get(canonical(x)) for x in ["FIGHTER_KEY","FIGHTER","FIGHTER_NAME"] if cols.get(canonical(x))), None)
+        country_col = next((cols.get(canonical(x)) for x in ["COUNTRY_STD","COUNTRY"] if cols.get(canonical(x))), None)
+        if fighter_col and country_col:
+            temp = countries[[fighter_col, country_col]].dropna().copy()
+            temp["_KEY"] = temp[fighter_col].map(fighter_key)
+            temp["_COUNTRY"] = temp[country_col].map(_country_norm)
+            conflict = temp.groupby("_KEY")["_COUNTRY"].nunique()
+            if (conflict > 1).any():
+                raise ValueError("Conflicting fighter-country mappings in V2.1 country map")
+            lookup = temp.drop_duplicates("_KEY").set_index("_KEY")["_COUNTRY"].to_dict()
+
+    for side in ["A", "B"]:
+        espn_col = f"{side}_COUNTRY_ESPN"
+        espn_country = result[espn_col].map(_country_norm) if espn_col in result else pd.Series("", index=result.index)
+        mapped = result[f"FIGHTER_{side}"].map(lambda x: lookup.get(fighter_key(x), ""))
+        result[f"{side}_COUNTRY_V21"] = np.where(espn_country.astype(str).str.len() > 0, espn_country, mapped)
+
+    if "IS_UAE_EVENT" not in result:
+        location = result["EVENT_LOCATION"] if "EVENT_LOCATION" in result else result["EVENT"]
+        result["IS_UAE_EVENT"] = location.map(_is_uae_text)
+
+    uae = result["IS_UAE_EVENT"].fillna(False).astype(bool)
+    a_known = result["A_COUNTRY_V21"].astype(str).str.len() > 0
+    b_known = result["B_COUNTRY_V21"].astype(str).str.len() > 0
+    unresolved = uae & ~(a_known & b_known)
+
+    result["DIFF_UAE_RUSSIA_HOME"] = 0.0
+    resolved_uae = uae & ~unresolved
+    result.loc[resolved_uae, "DIFF_UAE_RUSSIA_HOME"] = (
+        (result.loc[resolved_uae, "A_COUNTRY_V21"] == "russia").astype(float)
+        - (result.loc[resolved_uae, "B_COUNTRY_V21"] == "russia").astype(float)
+    )
+    result["V21_FEATURE_STATUS"] = np.where(
+        ~uae, "NOT_UAE",
+        np.where(unresolved, "UAE_COUNTRY_UNRESOLVED", "UAE_RESOLVED")
+    )
+    result["V21_FALLBACK_TO_V2"] = unresolved
     return result
 
+def _load_bundle(root, version):
+    if version == "v21":
+        metadata_path = root / "models/ufc_production_v21_uae_russia_metadata.json"
+        logistic_path = root / "models/ufc_logistic_production_v21_uae_russia.joblib"
+        cat_path = root / "models/ufc_catboost_production_v21_uae_russia.cbm"
+    else:
+        metadata_path = root / "models/ufc_production_v2_preufc_metadata.json"
+        logistic_path = root / "models/ufc_logistic_production_v2_preufc.joblib"
+        cat_path = root / "models/ufc_catboost_production_v2_preufc.cbm"
+    metadata = json.loads(metadata_path.read_text())
+    logistic = joblib.load(logistic_path)
+    cat = CatBoostClassifier()
+    cat.load_model(str(cat_path))
+    features = metadata["features"]
+    if list(logistic.feature_names_in_) != features or cat.feature_names_ != features:
+        raise ValueError(f"{version} feature order differs from metadata")
+    weights = metadata.get("ensemble") or metadata.get("blend")
+    if not weights:
+        raise ValueError(f"{version} metadata has no ensemble/blend weights")
+    cat_w = weights.get("catboost_weight")
+    log_w = weights.get("logistic_weight")
+    if cat_w is None or log_w is None:
+        raise ValueError(f"{version} metadata weights incomplete")
+    return metadata, logistic, cat, float(log_w), float(cat_w)
 
-def predict_upcoming_v2(root=None, months=12, bankroll=10000., fetch_prices=True, cards=None):
-    """Return fresh predictions and output folder; bankroll is fixed per card.
+def _predict_with_bundle(live, bundle):
+    metadata, logistic, cat, log_w, cat_w = bundle
+    matrix = live[metadata["features"]].replace([np.inf, -np.inf], np.nan)
+    try:
+        p = cat_w * cat.predict_proba(matrix)[:, 1]
+        p += log_w * logistic.predict_proba(matrix)[:, 1]
+    except AttributeError as exc:
+        raise RuntimeError("Saved models are incompatible with this sklearn version. Install scikit-learn==1.5.2 and numpy<2, restart the notebook kernel, then rerun.") from exc
+    return p
 
-    Optional cards DataFrame supports offline verification. No model training,
-    history updates or betting orders are performed.
+def _predict_matrix(root, live, prefer_v21=True):
+    v2 = _load_bundle(root, "v2")
+    v21_available = all((root / "models" / name).is_file() for name in [
+        "ufc_production_v21_uae_russia_metadata.json",
+        "ufc_logistic_production_v21_uae_russia.joblib",
+        "ufc_catboost_production_v21_uae_russia.cbm",
+    ])
+    result = live.copy()
+    if prefer_v21 and v21_available:
+        v21 = _load_bundle(root, "v21")
+        p = _predict_with_bundle(result, v21)
+        fallback = result.get("V21_FALLBACK_TO_V2", pd.Series(False, index=result.index)).fillna(False).astype(bool)
+        if fallback.any():
+            p_v2 = _predict_with_bundle(result.loc[fallback], v2)
+            p[fallback.to_numpy()] = p_v2
+        result["MODEL_VERSION"] = np.where(fallback, "v2_preufc_fallback", "v2.1_uae_russia")
+        result["PREDICTION_FALLBACK_REASON"] = np.where(fallback, "UAE fighter country unresolved", "")
+        metadata = v21[0]
+    else:
+        p = _predict_with_bundle(result, v2)
+        result["MODEL_VERSION"] = "v2_preufc"
+        result["PREDICTION_FALLBACK_REASON"] = ""
+        metadata = v2[0]
+    result["P_A"], result["P_B"] = p, 1 - p
+    result["PICK"] = np.where(p >= .5, result.FIGHTER_A, result.FIGHTER_B)
+    result["PICK_PROB"] = np.maximum(p, 1-p)
+    return result, metadata
+
+def predict_upcoming_v2(root=None, months=12, bankroll=10000., fetch_prices=True, cards=None, prefer_v21=True):
+    """Return fresh V2.1 predictions with automatic frozen-V2 fallback.
+
+    V2.1 is used whenever its local model files exist. On UAE fights where
+    fighter-country identity cannot be resolved safely, that row falls back to V2.
+    No model training, history updates or betting orders are performed.
     """
     if root is None:
         candidates = [Path.cwd(), *Path.cwd().parents]
         root = next((p for p in candidates if (p/'models/ufc_production_v2_preufc_metadata.json').is_file()), None)
         if root is None:
-            raise FileNotFoundError('Set root to your UFC project directory')
+            raise FileNotFoundError("Set root to your UFC project directory")
     root = Path(root).resolve()
     if months <= 0 or bankroll <= 0:
-        raise ValueError('months and bankroll must be positive')
-    metadata = json.loads((root/'models/ufc_production_v2_preufc_metadata.json').read_text())
-    if metadata['feature_count'] != 46 or metadata['production_version'] != 'v2_preufc':
-        raise ValueError('Expected the 46-feature Pre-UFC V2 models')
+        raise ValueError("months and bankroll must be positive")
+
+    v21_meta_path = root / "models/ufc_production_v21_uae_russia_metadata.json"
+    base_meta_path = v21_meta_path if prefer_v21 and v21_meta_path.is_file() else root / "models/ufc_production_v2_preufc_metadata.json"
+    metadata_for_build = json.loads(base_meta_path.read_text())
+
     now = datetime.now(timezone.utc)
     if cards is None:
-        print('Rufe aktuelle zukünftige UFC-Karten ab ...', flush=True)
+        print("Rufe aktuelle zukünftige UFC-Karten ab ...", flush=True)
         rows, coverage = fetch_cards(now.date(), now.date()+timedelta(days=int(months*31)))
         cards = pd.DataFrame(rows)
     else:
         cards = cards.copy()
         coverage = []
+
     live, base_features, fighter_key = _build_base(root, cards)
-    if base_features != metadata['features'][:42]:
-        raise ValueError('Base feature order differs from the saved V2 metadata')
-    live = _preufc_features(root, live, fighter_key, metadata)
-    live = _predict_matrix(root, live, metadata)
-    for col in ['EVENT_ID','FIGHT_ID','EVENT_START_UTC','SOURCE_URL','A_ESPN_ID','B_ESPN_ID']:
-        live[col] = cards[col].to_numpy()
-    live['GENERATED_AT_UTC'] = now.isoformat()
-    live['MODEL_VERSION'] = 'v2_preufc'
+    expected_base = metadata_for_build["features"][:42]
+    if base_features != expected_base:
+        raise ValueError("Base feature order differs from saved model metadata")
+
+    for col in ["EVENT_ID","FIGHT_ID","EVENT_START_UTC","SOURCE_URL","A_ESPN_ID","B_ESPN_ID",
+                "EVENT_LOCATION","IS_UAE_EVENT","A_COUNTRY_ESPN","B_COUNTRY_ESPN"]:
+        if col in cards:
+            live[col] = cards[col].to_numpy()
+
+    live = _preufc_features(root, live, fighter_key, metadata_for_build)
+
+    if prefer_v21 and v21_meta_path.is_file():
+        live = _add_v21_feature(root, live, fighter_key)
+
+    live, active_metadata = _predict_matrix(root, live, prefer_v21=prefer_v21)
+    live["GENERATED_AT_UTC"] = now.isoformat()
+
     results = pd.read_csv(root/'data/fight_results_clean.csv', usecols=['DATE'])
     history_date = pd.to_datetime(results.DATE).max().date()
-    live['HISTORY_LAST_DATE'] = str(history_date)
-    folder = root/'reports'/'v2_predictions'/now.strftime('%Y%m%dT%H%M%S_%fZ')
+    live["HISTORY_LAST_DATE"] = str(history_date)
+
+    folder = root/'reports'/'v21_predictions'/now.strftime('%Y%m%dT%H%M%S_%fZ')
     folder.mkdir(parents=True, exist_ok=False)
     pd.DataFrame(coverage).to_csv(folder/'event_coverage.csv', index=False)
     cards.to_csv(folder/'upcoming_cards.csv', index=False)
+
     price_path = None
     if fetch_prices:
-        print('Rufe aktuelle Quoten ab ...', flush=True)
+        print("Rufe aktuelle Quoten ab ...", flush=True)
         quotes, audit = fetch_odds(cards)
         price_path = folder/'odds_snapshot.csv'
         quotes.to_csv(price_path, index=False)
         audit.to_csv(folder/'odds_coverage.csv', index=False)
+
     live = add_odds(live, price_path, 'american', bankroll)
-    # Confidence and UFC-count filters remain identical to V1. Additional
-    # source/missing-feature flags are displayed explicitly for V2.
     uncertainty = ~live.PREUFC_COMPLETE | ~live.A_BIO_FOUND | ~live.B_BIO_FOUND
     uncertain_bets = (live.ACTION == 'BET') & uncertainty
     live.loc[uncertain_bets, 'ACTION'] = 'BET — REVIEW DATA'
     live.loc[uncertain_bets, 'SIM_STAKE'] = 0.
-    live.to_csv(folder/'predictions_v2.csv', index=False)
-    live[['DATE','EVENT','FIGHTER_A','FIGHTER_B']+metadata['features']].to_csv(folder/'features_v2.csv', index=False)
-    run = dict(generated_at_utc=now.isoformat(), model_version='v2_preufc', model_training_cutoff=metadata['training_end_date'], history_last_date=str(history_date), bankroll_per_event=bankroll, retrained=False, source='ESPN scoreboard; currently listed matchups; announcement coverage not guaranteed', model_sha256={n:hashlib.sha256((root/'models'/n).read_bytes()).hexdigest() for n in ['ufc_catboost_production_v2_preufc.cbm','ufc_logistic_production_v2_preufc.joblib']})
+
+    live.to_csv(folder/'predictions_v21.csv', index=False)
+    available_features = [c for c in active_metadata["features"] if c in live]
+    live[['DATE','EVENT','FIGHTER_A','FIGHTER_B'] + available_features].to_csv(folder/'features_v21.csv', index=False)
+
+    training_cutoff = active_metadata.get("training_end_date") or active_metadata.get("training_date_max")
+    model_names = []
+    for name in [
+        "ufc_catboost_production_v21_uae_russia.cbm",
+        "ufc_logistic_production_v21_uae_russia.joblib",
+        "ufc_catboost_production_v2_preufc.cbm",
+        "ufc_logistic_production_v2_preufc.joblib",
+    ]:
+        if (root/'models'/name).is_file():
+            model_names.append(name)
+    run = dict(
+        generated_at_utc=now.isoformat(),
+        requested_model="v2.1_uae_russia" if prefer_v21 else "v2_preufc",
+        rows_v21=int((live.MODEL_VERSION == "v2.1_uae_russia").sum()),
+        rows_v2_fallback=int(live.MODEL_VERSION.astype(str).str.contains("fallback").sum()),
+        model_training_cutoff=training_cutoff,
+        history_last_date=str(history_date),
+        bankroll_per_event=bankroll,
+        retrained=False,
+        source="ESPN scoreboard; currently listed matchups; announcement coverage not guaranteed",
+        model_sha256={n: hashlib.sha256((root/'models'/n).read_bytes()).hexdigest() for n in model_names},
+    )
     (folder/'run.json').write_text(json.dumps(run, indent=2))
-    print(f'V2: {len(live)} Picks | {live.EVENT.nunique()} Karten | Trainingsende {metadata["training_end_date"]} | lokale Kampfstatistiken bis {history_date}', flush=True)
+
+    print(
+        f'V2.1: {len(live)} Picks | {live.EVENT.nunique()} Karten | '
+        f'V2.1 rows {(live.MODEL_VERSION == "v2.1_uae_russia").sum()} | '
+        f'V2 fallback rows {live.MODEL_VERSION.astype(str).str.contains("fallback").sum()} | '
+        f'Trainingsende {training_cutoff} | lokale Kampfstatistiken bis {history_date}',
+        flush=True
+    )
     print(f'Gespeichert: {folder}', flush=True)
-    print('Kelly-Einsätze sind Simulationen. Fehlende Pre-UFC-/Bio-Daten erfordern Prüfung. Der Lauf aktualisiert keine Kampfstatistiken.', flush=True)
+    print('Kelly-Einsätze sind Simulationen. Betting erfordert >=5 UFC-Fights je Fighter, >=60% Modellkonfidenz und >=10% EV.', flush=True)
     return live, folder
+
+# Explicit V2.1 alias; old notebook calls to predict_upcoming_v2 remain compatible.
+predict_upcoming_v21 = predict_upcoming_v2
