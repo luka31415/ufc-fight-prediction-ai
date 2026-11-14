@@ -1,0 +1,114 @@
+{
+  "production_version": "v2_preufc",
+  "feature_count": 46,
+  "features": [
+    "DIFF_PRIOR_FIGHTS",
+    "DIFF_PRIOR_WINS",
+    "DIFF_PRIOR_LOSSES",
+    "DIFF_PRIOR_WIN_PCT",
+    "DIFF_PRIOR_AVG_KD",
+    "DIFF_PRIOR_AVG_SIG_STR_LANDED",
+    "DIFF_PRIOR_AVG_SIG_STR_ATT",
+    "DIFF_PRIOR_AVG_TOTAL_STR_LANDED",
+    "DIFF_PRIOR_AVG_TOTAL_STR_ATT",
+    "DIFF_PRIOR_AVG_TD_LANDED",
+    "DIFF_PRIOR_AVG_TD_ATT",
+    "DIFF_PRIOR_AVG_SUB.ATT",
+    "DIFF_PRIOR_AVG_CTRL_SECONDS",
+    "DIFF_PRIOR_SIG_STR_ACC",
+    "DIFF_PRIOR_TD_ACC",
+    "DIFF_DAYS_SINCE_LAST_FIGHT",
+    "DIFF_ELO",
+    "DIFF_UFC_DEBUT",
+    "DIFF_AGE",
+    "DIFF_HEIGHT_IN",
+    "DIFF_REACH_IN",
+    "DIFF_RATE_SIG_STR_LANDED_PM",
+    "DIFF_RATE_SIG_STR_ABSORBED_PM",
+    "DIFF_RATE_TD_LANDED_PER15",
+    "DIFF_RATE_TD_ALLOWED_PER15",
+    "DIFF_RATE_SUB_ATT_PER15",
+    "DIFF_RATE_SIG_STR_ACC",
+    "DIFF_RATE_SIG_STR_DEF",
+    "DIFF_RATE_TD_ACC",
+    "DIFF_RATE_TD_DEF",
+    "DIFF_RATE_CTRL_SHARE",
+    "DIFF_RECENT3_SIG_LANDED_PM",
+    "DIFF_RECENT3_SIG_ABSORBED_PM",
+    "DIFF_RECENT3_TD_LANDED_PER15",
+    "DIFF_RECENT3_TD_ALLOWED_PER15",
+    "DIFF_RECENT3_SUB_ATT_PER15",
+    "DIFF_RECENT3_CTRL_SHARE",
+    "DIFF_RECENT3_WIN_RATE",
+    "DIFF_RECENT3_FIGHT_COUNT",
+    "DIFF_PRIOR_AVG_OPP_ELO",
+    "DIFF_PRIOR_MAX_OPP_ELO",
+    "DIFF_RECENT3_AVG_OPP_ELO",
+    "DIFF_PREUFC_PRO_FIGHTS",
+    "DIFF_PREUFC_WIN_PCT",
+    "DIFF_PREUFC_FINISH_RATE",
+    "DIFF_PREUFC_RECENT5_WIN_PCT"
+  ],
+  "base_feature_count": 42,
+  "preufc_feature_count": 4,
+  "preufc_features": [
+    "DIFF_PREUFC_PRO_FIGHTS",
+    "DIFF_PREUFC_WIN_PCT",
+    "DIFF_PREUFC_FINISH_RATE",
+    "DIFF_PREUFC_RECENT5_WIN_PCT"
+  ],
+  "training_rows": 8705,
+  "training_start_date": "1994-03-11",
+  "training_end_date": "2026-08-29",
+  "logistic": {
+    "imputer": "median",
+    "scaler": "StandardScaler",
+    "max_iter": 3000,
+    "random_state": 42
+  },
+  "catboost": {
+    "iterations": 420,
+    "depth": 5,
+    "learning_rate": 0.03,
+    "loss_function": "Logloss",
+    "random_seed": 42
+  },
+  "ensemble": {
+    "catboost_weight": 0.55,
+    "logistic_weight": 0.45
+  },
+  "betting": {
+    "confidence_threshold": 0.6,
+    "ev_threshold": 0.1,
+    "kelly_fraction": 0.25,
+    "max_fight_bankroll_pct": 0.03,
+    "max_event_bankroll_pct": 0.125
+  },
+  "validation_summary": {
+    "dev_2020_2024": {
+      "accuracy": 0.62434,
+      "logloss": 0.64865,
+      "brier": 0.22853,
+      "auc": 0.66853
+    },
+    "later_2025_2026": {
+      "accuracy": 0.6509,
+      "logloss": 0.63287,
+      "brier": 0.22109,
+      "auc": 0.69905
+    },
+    "betting_2020_2024": {
+      "bets": 289,
+      "flat_roi": 0.0973,
+      "kelly_roi": 0.0613,
+      "max_drawdown": 0.2232
+    },
+    "betting_2025_2026": {
+      "bets": 83,
+      "win_rate": 0.6386,
+      "flat_roi": 0.3655,
+      "kelly_roi": 0.2438,
+      "max_drawdown": 0.1695
+    }
+  }
+}
