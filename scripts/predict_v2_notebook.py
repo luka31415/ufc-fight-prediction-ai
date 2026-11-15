@@ -13,7 +13,6 @@ from urllib.request import Request, urlopen
 import numpy as np
 import pandas as pd
 import joblib
-from catboost import CatBoostClassifier
 API = "https://site.api.espn.com/apis/site/v2/sports/mma/ufc"
 
 def regular_ufc(name):
@@ -624,6 +623,8 @@ def _preufc_features(root, live, fighter_key, metadata):
 
 
 def _country_norm(value):
+    if pd.isna(value):
+        return ""
     text = unicodedata.normalize("NFKD", str(value) if value is not None else "").encode("ascii", "ignore").decode("ascii").casefold()
     text = re.sub(r"[^a-z0-9]+", " ", text).strip()
     aliases = {
@@ -633,27 +634,44 @@ def _country_norm(value):
         "united arab emirates": "united arab emirates",
         "uae": "united arab emirates",
     }
+    if text in {"default", "unknown", "nan", "na", "n a", "none", "null", "tbd"}:
+        return ""
     return aliases.get(text, text)
+
+
+def _read_country_map(path, fighter_key):
+    """Read resolved identities, rejecting ambiguous columns and conflicting mappings."""
+    countries = pd.read_csv(path, dtype=str)
+    def select(labels):
+        for label in labels:
+            matches = [c for c in countries if re.sub(r"[^A-Z0-9]", "", c.upper()) == label]
+            if len(matches) > 1:
+                raise ValueError(f"Ambiguous country-map column for {label}")
+            if matches:
+                return matches[0]
+        raise ValueError(f"Country map requires one of {', '.join(labels)}")
+
+    fighter_column = select(("FIGHTERKEY", "FIGHTER", "FIGHTERNAME"))
+    country_column = select(("COUNTRYSTD", "COUNTRY"))
+    lookup = {}
+    for fighter, country in countries[[fighter_column, country_column]].itertuples(index=False, name=None):
+        if pd.isna(fighter):
+            continue
+        key = fighter_key(fighter)
+        value = _country_norm(country)
+        if not key or not value:
+            continue
+        if key in lookup and lookup[key] != value:
+            raise ValueError(f"Conflicting fighter-country mappings for {key}")
+        lookup[key] = value
+    return lookup
+
 
 def _add_v21_feature(root, live, fighter_key):
     """Build DIFF_UAE_RUSSIA_HOME. Missing UAE country identity is never guessed."""
     result = live.copy()
     map_path = root / "reports" / "uae_regional_home_full_timeline" / "fighter_country_map_espn_enriched.csv"
-    lookup = {}
-    if map_path.is_file():
-        countries = pd.read_csv(map_path)
-        canonical = lambda x: re.sub(r"[^A-Z0-9]", "", str(x).upper())
-        cols = {canonical(c): c for c in countries.columns}
-        fighter_col = next((cols.get(canonical(x)) for x in ["FIGHTER_KEY","FIGHTER","FIGHTER_NAME"] if cols.get(canonical(x))), None)
-        country_col = next((cols.get(canonical(x)) for x in ["COUNTRY_STD","COUNTRY"] if cols.get(canonical(x))), None)
-        if fighter_col and country_col:
-            temp = countries[[fighter_col, country_col]].dropna().copy()
-            temp["_KEY"] = temp[fighter_col].map(fighter_key)
-            temp["_COUNTRY"] = temp[country_col].map(_country_norm)
-            conflict = temp.groupby("_KEY")["_COUNTRY"].nunique()
-            if (conflict > 1).any():
-                raise ValueError("Conflicting fighter-country mappings in V2.1 country map")
-            lookup = temp.drop_duplicates("_KEY").set_index("_KEY")["_COUNTRY"].to_dict()
+    lookup = _read_country_map(map_path, fighter_key) if map_path.is_file() else {}
 
     for side in ["A", "B"]:
         espn_col = f"{side}_COUNTRY_ESPN"
@@ -694,6 +712,7 @@ def _load_bundle(root, version):
         cat_path = root / "models/ufc_catboost_production_v2_preufc.cbm"
     metadata = json.loads(metadata_path.read_text())
     logistic = joblib.load(logistic_path)
+    from catboost import CatBoostClassifier
     cat = CatBoostClassifier()
     cat.load_model(str(cat_path))
     features = metadata["features"]
