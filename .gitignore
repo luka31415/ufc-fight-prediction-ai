@@ -24,3 +24,8 @@ data/**/cache/
 
 # Notebook cell bytecode
 archive/notebook_cells/__pycache__/
+
+# Local history refresh backups, audits and writer lock
+/reports/history_updates/
+/data/.history-update.lock
+/data/*.updating
