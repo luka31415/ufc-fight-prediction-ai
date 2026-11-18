@@ -200,7 +200,29 @@ def add_odds(live, path, fmt, bankroll):
             live.loc[group.index, "SIM_STAKE"] *= .125 * bankroll / total
     return live
 
-def _build_base(ROOT, upcoming):
+from pathlib import Path
+import pandas as pd
+
+
+def _build_base(root, upcoming):
+    """Build 42 ordered features using only fights before each card's date."""
+    if upcoming.empty:
+        raise ValueError("Expected at least one matchup")
+    cards = upcoming.copy()
+    dates = pd.to_datetime(cards.DATE, errors="raise")
+    if dates.isna().any():
+        raise ValueError("Missing matchup date")
+    cards["_feature_order"] = range(len(cards))
+    outputs = []
+    for _, group in cards.groupby(dates, sort=False):
+        live, features, fighter_key = _build_for_date(Path(root), group)
+        live["_feature_order"] = group["_feature_order"].to_numpy()
+        outputs.append(live)
+    result = pd.concat(outputs).sort_values("_feature_order").drop(columns="_feature_order")
+    return result.reset_index(drop=True), features, fighter_key
+
+
+def _build_for_date(ROOT, upcoming):
     # Extracted from your existing cell 122; feature formulas unchanged.
     import os
     import re
@@ -245,6 +267,9 @@ def _build_base(ROOT, upcoming):
     history = pd.read_csv(str(ROOT / 'data/fighter_history.csv'), parse_dates=['DATE'])
     results = pd.read_csv(str(ROOT / 'data/fight_results_clean.csv'), parse_dates=['DATE'])
     bio = pd.read_csv(bio_path)
+    cutoff = pd.to_datetime(upcoming.DATE, errors="raise").iloc[0]
+    history = history.loc[history.DATE < cutoff]
+    results = results.loc[results.DATE < cutoff]
     features = [c for c in training.columns if c.startswith('DIFF_')]
     if len(features) != 42:
         raise ValueError(f'Expected 42 DIFF features, found {len(features)}')
