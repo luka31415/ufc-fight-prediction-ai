@@ -544,6 +544,8 @@ def athlete_id(obj):
 
 def parse_quote(item, a_id, b_id):
     """Never infer red/blue/home/away ordering from array position."""
+    if str(a_id) == str(b_id) or a_id is None or b_id is None:
+        raise ValueError("Expected two distinct athlete IDs")
     prices = {}
     for field in ["homeAthleteOdds", "awayAthleteOdds"]:
         side = item.get(field, {})
@@ -556,6 +558,8 @@ def parse_quote(item, a_id, b_id):
         number = float(value)
         if not math.isfinite(number) or abs(number) < 100:
             raise ValueError("Invalid current Moneyline")
+        if ident in prices:
+            raise ValueError("Duplicate athlete ID in quote")
         prices[ident] = number
     if str(a_id) not in prices or str(b_id) not in prices:
         return None
@@ -567,8 +571,11 @@ def fetch_odds(cards):
     def one(row):
         base = {c: str(row[c]) for c in ["EVENT_ID", "FIGHT_ID", "FIGHTER_A", "FIGHTER_B"]}
         url = f"{CORE}/events/{row.EVENT_ID}/competitions/{row.FIGHT_ID}/odds?lang=en&region=us"
+        start = pd.to_datetime(row.EVENT_START_UTC, utc=True, errors="coerce")
+        if pd.isna(start):
+            return None, {**base, "STATUS": "INVALID_EVENT_START"}
         stamp = datetime.now(timezone.utc)
-        if stamp >= pd.to_datetime(row.EVENT_START_UTC, utc=True).to_pydatetime():
+        if stamp >= start.to_pydatetime():
             return None, {**base, "STATUS": "EVENT_ALREADY_STARTED"}
         try:
             payload = get_json(url)
@@ -577,11 +584,14 @@ def fetch_odds(cards):
             for item in choices:
                 if item.get("$ref") and not any(k in item for k in ["homeAthleteOdds", "awayAthleteOdds"]):
                     item = get_json(item["$ref"])
-                pair = parse_quote(item, row.A_ESPN_ID, row.B_ESPN_ID)
+                try:
+                    pair = parse_quote(item, row.A_ESPN_ID, row.B_ESPN_ID)
+                except (ValueError, TypeError, AttributeError):
+                    continue
                 if pair is None:
                     continue
                 observed = datetime.now(timezone.utc)
-                if observed >= pd.to_datetime(row.EVENT_START_UTC, utc=True).to_pydatetime():
+                if observed >= start.to_pydatetime():
                     return None, {**base, "STATUS": "EVENT_STARTED_DURING_REQUEST"}
                 quote = {**base, "A_ODDS": pair[0], "B_ODDS": pair[1], "ODDS_AS_OF_UTC": observed.isoformat(),
                          "PROVIDER": item.get("provider", {}).get("name", "UNKNOWN"), "SOURCE_URL": url}
@@ -589,7 +599,8 @@ def fetch_odds(cards):
             return None, {**base, "STATUS": "NO_MATCHED_CURRENT_MONEYLINES"}
         except (HTTPError, URLError, ValueError, TypeError, OSError) as exc:
             return None, {**base, "STATUS": "UNAVAILABLE: " + str(exc)}
-    rows = list(cards.itertuples(index=False))
+    if cards.duplicated(["EVENT_ID", "FIGHT_ID"]).any():
+        raise ValueError("Duplicate fight IDs in cards")
     # A series is needed for both keyed and attribute access in one().
     with ThreadPoolExecutor(max_workers=4) as pool:
         result = list(pool.map(one, [row for _, row in cards.iterrows()]))
