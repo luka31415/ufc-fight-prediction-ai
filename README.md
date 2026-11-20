@@ -90,19 +90,18 @@ I intentionally leave unresolved or date-mismatched profiles out rather than for
 ## What is in this repository
 
 ```text
-ufc-ai/
-├── archive/                # original notebook + cell snapshots
-├── config/                 # locked production settings
-├── data/                   # local/generated data location (large data excluded)
-├── experiments/            # research experiment definitions/results
-├── external/               # external scraper source kept with attribution
-├── models/production/      # production model location
-├── reports/                # full research report + experiment registry
-├── scripts/                # command-line entry points
-├── src/ufc_ai/             # reusable Python package
-├── tests/                  # regression/smoke tests
-└── workflows/              # historical notebook logic split by topic
+config/       # production settings
+data/         # local input location; only documentation is tracked
+external/     # scraper provenance and dependency boundary
+models/       # portable metadata and model cards; weights stay local
+reports/      # historical evidence, summaries and integration audit
+scripts/      # history, prediction, settlement and research entry points
+src/ufc_ai/   # reusable Python package
+tests/        # offline regression tests
 ```
+
+Original notebooks, caches and thematic research workflows remain in the source
+archive; they are not shipped in this cleaned repository.
 
 ## Main research areas
 
@@ -146,43 +145,61 @@ I deliberately rejected several ideas after testing them:
 
 A particularly useful example was the media-history experiment. It slightly improved global probability metrics, but the locked betting strategy became substantially worse, so I rejected it for production.
 
-## Installation
+## Installation and tests
+
+Use Python 3.12 for the pinned development environment:
 
 ```bash
 python -m venv .venv
-.venv\Scripts\activate
-pip install -e .
+# Linux/macOS:
+. .venv/bin/activate
+# Windows PowerShell: .venv\Scripts\Activate.ps1
+python -m pip install -r requirements-dev.txt
+python -m pip install --no-build-isolation --no-deps -e .
+python -m pip check
+python -m pytest --disable-socket -q
 ```
 
-## Production evaluation
+See [development setup](DEVELOPMENT.md) for CI, dependency updates and validation
+limits. Tests use synthetic fixtures and require no private data or model files.
+
+## Prediction and settlement
+
+Supply the trusted local weights and CSVs described in the [model cards](models/README.md)
+and [orchestration guide](scripts/update_and_predict.md). Their archive-member
+checksums are documented; neither weights nor raw datasets are fetched by setup.
 
 ```bash
-python scripts/evaluate_production.py
+# Local preflight only; no model loading or network requests:
+python scripts/update_and_predict.py --project-root . --check-only
+# Use existing local history; fetch currently listed cards and odds:
+python scripts/update_and_predict.py --project-root . --skip-history
+# Settle an unchanged saved snapshot:
+python scripts/settle_picks.py --predictions reports/v21_predictions/RUN/predictions_v21.csv
 ```
 
-## Production training
+Replace `RUN` with the generated run directory. V2 is the orchestration default;
+`--experimental-v21` opts into the regional candidate and requires both bundles.
+The notebook entry point retains its legacy V2.1 preference when artifacts exist;
+pass `prefer_v21=False` there for V2. No models are retrained by prediction.
+`--no-odds` disables quotes but still fetches cards. For a history refresh, follow
+[update_history.md](scripts/update_history.md) and provide the checked snapshot.
+[Settlement](scripts/settle_picks.md) supports `--events-json scoreboard.json` for
+offline result input; unresolved fights never become losses.
+
+The six-outcome distribution validator is independent of model inference:
 
 ```bash
-python scripts/train_production.py
+python -m ufc_ai.joint predictions.csv --schema live
 ```
 
-The scripts expect my local generated data files in `data/`. I intentionally do not commit the entire research-data directory because it is large and contains many generated caches/intermediate files.
+## Research training and evaluation
 
-## Historical workflows
-
-I split the original giant notebook into thematic workflows:
-
-1. `01_data_pipeline.py`
-2. `02_model_development.py`
-3. `03_feature_context_experiments.py`
-4. `04_rehydration_research.py`
-5. `05_odds_and_betting.py`
-6. `06_ml_challengers.py`
-7. `07_live_prediction_tools.py`
-8. `08_new_feature_and_dreamfight.py`
-9. `09_media_robbery_research.py`
-
-The original notebook is still preserved under `archive/` for traceability.
+`python scripts/train_production.py` and `python scripts/evaluate_production.py`
+require the local `data/training_data_with_odds.csv` with the full production
+feature schema. They write legacy model/report filenames and do not recreate the
+versioned frozen V2/V2.1 bundles or their exact training-row selection. Keep new
+training artifacts separate from the trusted saved bundles.
 
 ## Results update — 11 October 2026
 
@@ -217,7 +234,7 @@ V1 nevertheless produced the stronger betting result in this very small common s
 
 A fresh Production v2 run on 22 October produced **65 picks across six upcoming cards** without retraining. The local fight-history snapshot used by that run still ends on **3 October 2026**.
 
-The live runner currently has one policy inconsistency: it can display `BET — REVIEW DATA` on low-data fights even when one fighter has fewer than five prior UFC fights. Those review bets are not considered qualifying bets under the locked historical betting policy and the runner should be fixed before live betting outputs are treated as policy-compliant.
+At the time of the October report, the live runner had one policy inconsistency: it can display `BET — REVIEW DATA` on low-data fights even when one fighter has fewer than five prior UFC fights. Those review bets are not considered qualifying bets under the locked historical betting policy and that historical output should not be treated as policy-compliant. The current runner checks both prior-fight counts when provided and gives review-data rows zero simulated stake; this integration did not rerun the October snapshot.
 
 See the full follow-up report:
 
@@ -244,9 +261,20 @@ I also keep a machine-readable experiment registry here:
 
 [`reports/EXPERIMENT_REGISTRY.csv`](reports/EXPERIMENT_REGISTRY.csv)
 
-## Current research direction
+## Integration completed — 20 November 2026
 
-The current engineering priorities are enforcing the locked >=5-prior-UFC-fights betting filter in the live runner, updating local fight history beyond 3 October 2026, rerunning the upcoming-card snapshot, and extending the stored V1-vs-V2 post-cutoff comparison beyond the current 37 common fights.
+The finite [integration plan](reports/import_2026_11_13/README.md) covers 16 commits:
+regional validation, portable metadata, comparison provenance, conditional-method
+probability checks, history updates, live features/odds, orchestration, settlement,
+CI and documentation. See the [final audit](reports/import_2026_11_13/final_audit.md)
+for completion evidence and remaining research limitations.
+
+V2.1 remains experimental. V2 reports 8,705 training rows versus V2.1's 8,683;
+the supplied data has 22 duplicate excess rows, but exact fitted row selection
+still needs a manifest. No isolated regional-feature advantage is established.
+Historical metrics above were not rerun during integration, and there is no new
+live prediction or profitability claim. Further research would require explicitly
+chosen work rather than additional automatic commits.
 
 ## Disclaimer
 

@@ -64,3 +64,10 @@ Avoid copying private local absolute paths into public metadata.
 Priority additions: consistent feature schemas; pre-event-only chronology;
 training-universe reconciliation; calibration/uncertainty; event exposure caps;
 missing/duplicate odds checks; settlement idempotence; offline fixtures; CI.
+
+## Completion — 20 November 2026
+
+All seven follow-up batches are complete: 16 commits including the initial pair.
+See the [final audit](final_audit.md) for the commit record, 75 passing offline
+tests, setup verification and explicit research limitations. No further batches
+remain; this finite rollout ends here.
