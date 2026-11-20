@@ -8,5 +8,11 @@ version="0.1.0"
 requires-python=">=3.10"
 dependencies=["pandas","numpy","scikit-learn","catboost","joblib","requests","beautifulsoup4"]
 
+[project.optional-dependencies]
+dev = ["pytest>=8,<9", "pytest-socket>=0.7,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.setuptools.packages.find]
 where=["src"]

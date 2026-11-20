@@ -29,3 +29,17 @@ archive/notebook_cells/__pycache__/
 /reports/history_updates/
 /data/.history-update.lock
 /data/*.updating
+
+# Local model weights and packaging/test outputs
+*.cbm
+*.joblib
+*.pkl
+*.pickle
+*.onnx
+*.pt
+*.pth
+*.egg-info/
+.pytest_cache/
+build/
+dist/
+/reports/v21_predictions/
